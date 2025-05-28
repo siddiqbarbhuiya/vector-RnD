@@ -1,0 +1,426 @@
+# from fastapi import FastAPI
+# from pydantic import BaseModel
+# import chromadb
+# from chromadb.config import Settings
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Set up ChromaDB persistent client
+# client = chromadb.PersistentClient(path="./chroma_store")
+# collection = client.get_or_create_collection(name="my_collection")
+
+# # Define request model
+# class DocumentItem(BaseModel):
+#     id: str
+#     document: str
+#     metadata: dict
+
+# # Add a document to the collection
+# @app.post("/add-document")
+# def add_document(item: DocumentItem):
+#     collection.add(
+#         ids=[item.id],
+#         documents=[item.document],
+#         metadatas=[item.metadata]
+#     )
+#     return {"status": "Document added", "id": item.id}
+
+# # Get all documents from the collection
+# @app.get("/collection-data")
+# def get_collection_data():
+#     result = collection.get(
+#         include=["metadatas", "documents"]
+#     )
+#     return result
+
+
+
+
+# from fastapi import FastAPI, UploadFile, File
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# import chromadb
+# from chromadb.config import Settings
+# from typing import List
+# import uuid
+# import fitz  # PyMuPDF for PDF parsing
+# from sentence_transformers import SentenceTransformer
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Allow CORS (for frontends like React/Streamlit to connect)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ChromaDB persistent client
+# client = chromadb.PersistentClient(path="./chroma_store")
+# collection = client.get_or_create_collection(name="resumes")
+
+# # Load embedding model
+# embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# # Parse PDF to plain text
+# def extract_text_from_pdf(file: UploadFile) -> str:
+#     with fitz.open(stream=file.file.read(), filetype="pdf") as doc:
+#         return "\n".join([page.get_text() for page in doc])
+
+# # Endpoint to upload and embed resume(s)
+# @app.post("/upload-resumes")
+# async def upload_resumes(files: List[UploadFile] = File(...)):
+#     added = []
+#     for file in files:
+#         text = extract_text_from_pdf(file)
+#         embedding = embedding_model.encode(text).tolist()
+#         doc_id = str(uuid.uuid4())
+#         collection.add(
+#             ids=[doc_id],
+#             documents=[text],
+#             embeddings=[embedding],
+#             metadatas=[{"filename": file.filename}]
+#         )
+#         added.append({"id": doc_id, "filename": file.filename})
+#     return {"status": "success", "added": added}
+
+# # Query model
+# class QueryItem(BaseModel):
+#     query: str
+#     top_k: int = 3
+
+# # Endpoint to search top matching resumes
+# @app.post("/search-resumes")
+# def search_resumes(item: QueryItem):
+#     query_embedding = embedding_model.encode(item.query).tolist()
+#     results = collection.query(
+#         query_embeddings=[query_embedding],
+#         n_results=item.top_k,
+#         include=["documents", "metadatas"]
+#     )
+#     return results
+
+# # Utility endpoint to list all stored resumes
+# @app.get("/all-resumes")
+# def list_all():
+#     return collection.get(include=["metadatas"])
+
+# # Optional: delete/reset for development
+# @app.delete("/clear-resumes")
+# def clear():
+#     client.delete_collection("resumes")
+#     return {"status": "collection cleared"}
+
+
+
+# from fastapi import FastAPI, UploadFile, File
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# import chromadb
+# from chromadb.config import Settings
+# from typing import List
+# import uuid
+# import fitz  # PyMuPDF
+# from sentence_transformers import SentenceTransformer
+# import re
+# from fastapi import HTTPException
+# from ai_utils import rewrite_query
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Allow CORS (for frontends)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ChromaDB client
+# client = chromadb.PersistentClient(path="./chroma_store")
+# collection = client.get_or_create_collection(name="resumes")
+
+# # Embedding model
+# embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# # Function to split text into clean chunks
+# def split_into_chunks(text: str, chunk_size: int = 500) -> List[str]:
+#     # Normalize and split on sentences or paragraphs
+#     paragraphs = re.split(r"\n{2,}", text)
+#     chunks = []
+
+#     for para in paragraphs:
+#         sentences = re.split(r"(?<=[.!?]) +", para.strip())
+#         chunk = ""
+#         for sentence in sentences:
+#             if len(chunk) + len(sentence) < chunk_size:
+#                 chunk += sentence + " "
+#             else:
+#                 chunks.append(chunk.strip())
+#                 chunk = sentence + " "
+#         if chunk:
+#             chunks.append(chunk.strip())
+
+#     return [chunk for chunk in chunks if len(chunk) > 30]
+
+# # Extract text from PDF
+# def extract_text_from_pdf(file: UploadFile) -> str:
+#     with fitz.open(stream=file.file.read(), filetype="pdf") as doc:
+#         return "\n".join([page.get_text() for page in doc])
+
+# # Upload resumes
+# @app.post("/upload-resumes")
+# async def upload_resumes(files: List[UploadFile] = File(...)):
+#     added = []
+#     for file in files:
+#         text = extract_text_from_pdf(file)
+#         chunks = split_into_chunks(text)
+
+#         for idx, chunk in enumerate(chunks):
+#             doc_id = str(uuid.uuid4())
+#             embedding = embedding_model.encode(chunk).tolist()
+#             collection.add(
+#                 ids=[doc_id],
+#                 documents=[chunk],
+#                 embeddings=[embedding],
+#                 metadatas=[{"filename": file.filename, "chunk_index": idx}]
+#             )
+#         added.append({"filename": file.filename, "chunks": len(chunks)})
+#     return {"status": "success", "added": added}
+
+# # Query model
+# class QueryItem(BaseModel):
+#     query: str
+#     top_k: int = 5
+
+# # Search resumes
+# # @app.post("/search-resumes")
+# # def search_resumes(item: QueryItem):
+# #     query_embedding = embedding_model.encode(item.query).tolist()
+# #     results = collection.query(
+# #         query_embeddings=[query_embedding],
+# #         n_results=item.top_k,
+# #         include=["documents", "metadatas"]
+# #     )
+# #     return results
+
+# @app.post("/search-resumes-ai")
+# def search_resumes_ai(item: QueryItem):
+#     refined_query = rewrite_query(item.query)
+#     query_embedding = embedding_model.encode(refined_query).tolist()
+
+#     results = collection.query(
+#         query_embeddings=[query_embedding],
+#         n_results=item.top_k,
+#         include=["documents", "metadatas"]
+#     )
+
+#     return {
+#         "original_query": item.query,
+#         "refined_query": refined_query,
+#         "results": results
+#     }
+
+
+# # View stored resumes
+# @app.get("/all-resumes")
+# def list_all():
+#     return collection.get(include=["metadatas"])
+
+# # Clear collection
+# @app.delete("/clear-resumes")
+# def clear():
+#     client.delete_collection("resumes")
+#     return {"status": "collection cleared"}
+
+# @app.get("/preview-resume")
+# def preview_resume(filename: str):
+#     # Fetch documents by filename metadata
+#     results = collection.get(include=["documents", "metadatas"])
+#     documents = results["documents"]
+#     metadatas = results["metadatas"]
+
+#     # Filter chunks by the given filename
+#     filtered = [
+#         (doc, meta) for doc, meta in zip(documents, metadatas)
+#         if meta.get("filename") == filename
+#     ]
+
+#     if not filtered:
+#         raise HTTPException(status_code=404, detail="Resume not found")
+
+#     # Sort by chunk index for readability
+#     sorted_chunks = sorted(filtered, key=lambda x: x[1].get("chunk_index", 0))
+
+#     full_text = "\n\n".join(chunk[0] for chunk in sorted_chunks)
+#     return {
+#         "filename": filename,
+#         "content": full_text
+#     }
+
+
+# from fastapi import FastAPI, UploadFile, File, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# from typing import List
+# import uuid
+# import fitz  # PyMuPDF
+# import re
+# import chromadb
+# from chromadb.config import Settings
+# from sentence_transformers import SentenceTransformer
+# from ai_utils import rewrite_query
+# import os
+# from dotenv import load_dotenv
+# from langchain.schema import OutputParserException 
+# from langchain_openai import ChatOpenAI
+# from langchain_chroma import Chroma
+# from langchain.chains import RetrievalQA
+# from langchain_community.embeddings import HuggingFaceEmbeddings  # Updated import
+
+# # Load environment variables
+# load_dotenv()
+# os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+# app = FastAPI()
+
+# # CORS setup
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ChromaDB config
+# chroma_path = "./chroma_store"
+# client = chromadb.PersistentClient(path=chroma_path)
+# collection = client.get_or_create_collection(name="resumes")
+
+# # SentenceTransformer model
+# embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# # Split text into clean chunks
+# def split_into_chunks(text: str, chunk_size: int = 500) -> List[str]:
+#     paragraphs = re.split(r"\n{2,}", text)
+#     chunks = []
+#     for para in paragraphs:
+#         sentences = re.split(r"(?<=[.!?]) +", para.strip())
+#         chunk = ""
+#         for sentence in sentences:
+#             if len(chunk) + len(sentence) < chunk_size:
+#                 chunk += sentence + " "
+#             else:
+#                 chunks.append(chunk.strip())
+#                 chunk = sentence + " "
+#         if chunk:
+#             chunks.append(chunk.strip())
+#     return [chunk for chunk in chunks if len(chunk) > 30]
+
+# # Extract text from PDF
+# def extract_text_from_pdf(file: UploadFile) -> str:
+#     with fitz.open(stream=file.file.read(), filetype="pdf") as doc:
+#         return "\n".join([page.get_text() for page in doc])
+
+# # Upload endpoint
+# @app.post("/upload-resumes")
+# async def upload_resumes(files: List[UploadFile] = File(...)):
+#     added = []
+#     for file in files:
+#         text = extract_text_from_pdf(file)
+#         chunks = split_into_chunks(text)
+#         for idx, chunk in enumerate(chunks):
+#             doc_id = str(uuid.uuid4())
+#             embedding = embedding_model.encode(chunk).tolist()
+#             collection.add(
+#                 ids=[doc_id],
+#                 documents=[chunk],
+#                 embeddings=[embedding],
+#                 metadatas=[{"filename": file.filename, "chunk_index": idx}]
+#             )
+#         added.append({"filename": file.filename, "chunks": len(chunks)})
+#     return {"status": "success", "added": added}
+
+# # Query model
+# class QueryItem(BaseModel):
+#     query: str
+#     top_k: int = 5
+
+# # Classic semantic search with AI query rewriting
+# @app.post("/search-resumes-ai")
+# def search_resumes_ai(item: QueryItem):
+#     refined_query = rewrite_query(item.query)
+#     query_embedding = embedding_model.encode(refined_query).tolist()
+#     results = collection.query(
+#         query_embeddings=[query_embedding],
+#         n_results=item.top_k,
+#         include=["documents", "metadatas"]
+#     )
+#     return {
+#         "original_query": item.query,
+#         "refined_query": refined_query,
+#         "results": results
+#     }
+
+# @app.post("/search-resumes-llm")
+# def search_resumes_llm(item: QueryItem):
+#     try:
+#         vectordb = Chroma(
+#             collection_name="resumes",
+#             embedding_function=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2"),  # Updated to match upload endpoint
+#             persist_directory=chroma_path
+#         )
+#         retriever = vectordb.as_retriever(search_kwargs={"k": item.top_k})
+#         qa = RetrievalQA.from_chain_type(
+#             llm=ChatOpenAI(model_name="gpt-4o-mini"),
+#             retriever=retriever,
+#             return_source_documents=True
+#         )
+#         result = qa.invoke({"query": item.query})
+
+#         return {
+#             "query": item.query,
+#             "answer": result["result"],
+#             "sources": [
+#                 {
+#                     "filename": doc.metadata.get("filename"),
+#                     "snippet": doc.page_content,
+#                 } for doc in result["source_documents"]
+#             ]
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# # View all stored resumes
+# @app.get("/all-resumes")
+# def list_all():
+#     return collection.get(include=["metadatas"])
+
+# # Clear collection
+# @app.delete("/clear-resumes")
+# def clear():
+#     client.delete_collection("resumes")
+#     return {"status": "collection cleared"}
+
+# # Preview specific resume by filename
+# @app.get("/preview-resume")
+# def preview_resume(filename: str):
+#     results = collection.get(include=["documents", "metadatas"])
+#     documents = results["documents"]
+#     metadatas = results["metadatas"]
+#     filtered = [
+#         (doc, meta) for doc, meta in zip(documents, metadatas)
+#         if meta.get("filename") == filename
+#     ]
+#     if not filtered:
+#         raise HTTPException(status_code=404, detail="Resume not found")
+#     sorted_chunks = sorted(filtered, key=lambda x: x[1].get("chunk_index", 0))
+#     full_text = "\n\n".join(chunk[0] for chunk in sorted_chunks)
+#     return {"filename": filename, "content": full_text}
