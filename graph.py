@@ -269,7 +269,7 @@ Query: {message}
                 result = qa.invoke({"query": query})
             except Exception as invoke_err:
                 logger.warning(f"QA invoke failed: {str(invoke_err)}. Trying alternative invocation.")
-                result = qa({"query": "find me candidate who has maximum number of skills mentioned"})  # Fallback invocation
+                result = qa({"query": query})  # Fallback invocation
             logger.info(f"Retrieved {len(result['source_documents'])} documents for query: {query}")
 
             sources = []
@@ -415,7 +415,7 @@ Query: {message}
                 result = qa.invoke({"query": query})
             except Exception as invoke_err:
                 logger.warning(f"QA invoke failed: {str(invoke_err)}. Trying alternative invocation.")
-                result = qa({"query": "find me candidate who has maximum number of skills mentioned"})
+                result = qa({"query": query})
             logger.info(f"Retrieved {len(result['source_documents'])} documents for query: {query}")
 
             sources = []
